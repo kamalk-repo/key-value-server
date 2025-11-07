@@ -15,9 +15,19 @@ All persistent data is stored in a MySQL database, providing a durable backend f
 The main objective of this project is to study the performance and identify bottlenecks under various workloads.
 
 
+# How To Run
+
+Run following commands in project directory
+
+```bash
+  go mod download
+  go run server.go
+```
+
+
 # API Routes
 
-#### Read Key
+### Read Key
 
 ```http
   GET /kv_store?key=keyId
@@ -40,7 +50,7 @@ Sample Response:
   }
 ```
 
-#### Add key
+### Add key
 
 ```http
   POST /kv_store
@@ -68,7 +78,7 @@ Sample Response:
 
 ```
 
-#### Update key
+### Update key
 
 ```http
   PUT /kv_store
@@ -96,7 +106,7 @@ Sample Response:
 
 ```
 
-#### Delete key
+### Delete key
 
 ```http
   DELETE /kv_store?key=keyId
@@ -115,7 +125,9 @@ Sample Response:
   }
 
 ```
-
-# Authors
+## Authors
 
 - [@Kamal](https://www.github.com/kamalk-repo)
+## Acknowledgements
+
+ - [Lectures on Operating Systems - Mythili Vutukuru](https://www.cse.iitb.ac.in/~mythili/os/)
