@@ -27,6 +27,8 @@ func main() {
 		passowrd := os.Getenv("DB_PASSWORD")
 		database := os.Getenv("DB_NAME")
 		cacheSize, err := strconv.Atoi(os.Getenv("CACHE_SIZE"))
+		serverHost := os.Getenv("SERVER_HOST")
+		serverPort := os.Getenv("SERVER_PORT")
 
 		if err != nil || cacheSize <= 0 {
 			log.Printf("Invalid cache size value. Using default value of 10 for cache size")
@@ -62,7 +64,8 @@ func main() {
 			})
 
 			fmt.Println("Server running on http://localhost:8080")
-			log.Fatal(http.ListenAndServe(":8080", nil))
+			serverURL := fmt.Sprintf("%s:%s", serverHost, serverPort)
+			log.Fatal(http.ListenAndServe(serverURL, nil))
 		}
 	}
 }
