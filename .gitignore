@@ -36,3 +36,6 @@ go.work.sum
 
 # Archived Files
 Archive
+
+# Remove Client test file from tracking after commit
+Client
