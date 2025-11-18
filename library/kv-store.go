@@ -55,7 +55,8 @@ type KVResponse struct {
 
 // Key value entity to manage key store. Can be configured for database and cache operation
 type KVStore struct {
-	cache                *Cache
+	//cache                *Cache
+	cache                *LRUCache
 	mode                 CacheMode
 	DB                   *sql.DB
 	IsDbConnectionFailed bool
@@ -64,7 +65,7 @@ type KVStore struct {
 // Utility function to initialize key value store with default values
 func NewKVStore(cacheLength int, modeOfCache CacheMode) *KVStore {
 	return &KVStore{
-		cache:                NewCache(cacheLength),
+		cache:                NewLRUCache(cacheLength),
 		IsDbConnectionFailed: false,
 		mode:                 modeOfCache,
 	}
@@ -249,7 +250,7 @@ func (kv *KVStore) CreateHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, exists := kv.cache.Get(req.Key); exists {
+	if _, exists := kv.cache.CheckKey(req.Key); exists {
 		status, data = KeyDuplicationError, fmt.Sprintf("Key already present. Key: %d", req.Key)
 	} else {
 
@@ -267,7 +268,7 @@ func (kv *KVStore) CreateHandler(w http.ResponseWriter, r *http.Request) {
 			// In one case only when there is error while writing in DB during Write Through mode,
 			// Don't write in cache
 			if kv.mode != WriteThrough || (kv.mode == WriteThrough && status == Success) {
-				kv.cache.AddOrUpdateCacheItem(req.Key, req.Value, kv)
+				kv.cache.Add(&Node{key: req.Key, keyValue: req.Value})
 				data = fmt.Sprintf("Inserted key: %d", req.Key)
 				status = Success
 			}
@@ -288,12 +289,12 @@ func (kv *KVStore) ReadHandler(w http.ResponseWriter, r *http.Request) {
 	var status StatusCode
 	var resError error
 	var data interface{}
+	var keyValue string
 
-	if keyValue, exists := kv.cache.Get(key); !exists {
-
+	if keyNode, exists := kv.cache.CheckKey(key); !exists {
 		status, keyValue, resError = kv.readKey(key)
 		if status == Success {
-			kv.cache.AddOrUpdateCacheItem(key, keyValue, kv)
+			kv.cache.Add(&Node{key: key, keyValue: keyValue})
 			data = KVData{Key: key, Value: keyValue}
 		} else if status == KeyNotFoundError {
 			data = fmt.Sprintf("")
@@ -302,7 +303,7 @@ func (kv *KVStore) ReadHandler(w http.ResponseWriter, r *http.Request) {
 			status = Unknown
 		}
 	} else {
-		data = KVData{Key: key, Value: keyValue}
+		data = KVData{Key: key, Value: keyNode.keyValue}
 		status = Success
 	}
 
@@ -326,7 +327,7 @@ func (kv *KVStore) UpdateHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, existsInCache = kv.cache.Get(req.Key); !existsInCache {
+	if _, existsInCache = kv.cache.CheckKey(req.Key); !existsInCache {
 
 		// If key not in cache, check in database
 		status, _ = kv.checkIfKeyExists(req.Key)
@@ -349,7 +350,11 @@ func (kv *KVStore) UpdateHandler(w http.ResponseWriter, r *http.Request) {
 		// In one case only when there is error while writing in DB during Write Through mode,
 		// Don't write in cache
 		if kv.mode != WriteThrough || (kv.mode == WriteThrough && status == Success) {
-			kv.cache.AddOrUpdateCacheItem(req.Key, req.Value, kv)
+			if !existsInCache {
+				kv.cache.Add(&Node{key: req.Key, keyValue: req.Value})
+			} else {
+				kv.cache.UpdateKey(req.Key, req.Value)
+			}
 			data = fmt.Sprintf("Updated key: %d", req.Key)
 		}
 	}
@@ -367,12 +372,13 @@ func (kv *KVStore) DeleteHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var existsInCache, existsInDB bool
+	var keyNode *Node
 	var data interface{}
 	var status StatusCode
 
 	// Present in cache, delete in cache
-	if _, existsInCache = kv.cache.Get(key); existsInCache {
-		kv.cache.Delete(key)
+	if keyNode, existsInCache = kv.cache.CheckKey(key); existsInCache {
+		kv.cache.Remove(keyNode)
 	}
 
 	// Present in DB, delete in DB
