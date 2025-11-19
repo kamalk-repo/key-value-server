@@ -42,6 +42,14 @@ func (kv KVStore) getErrorDescription(status StatusCode) string {
 	return response
 }
 
+// Cache mode enum
+type CacheMode int64
+
+const (
+	WriteThrough = iota
+	WriteBack
+)
+
 // Request and response object for http handler functions
 type KVData struct {
 	Key   int    `json:"Key"`
