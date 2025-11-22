@@ -1,11 +1,11 @@
 package library
 
 import (
+	"bufio"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strconv"
 )
 
 // --------------- KEY VALUE STORE CODE: START ---------------
@@ -52,7 +52,7 @@ const (
 
 // Request and response object for http handler functions
 type KVData struct {
-	Key   int    `json:"Key"`
+	Key   string `json:"Key"`
 	Value string `json:"Value"`
 }
 type KVResponse struct {
@@ -84,77 +84,66 @@ func NewKVStore(cacheLength int, modeOfCache CacheMode) *KVStore {
 // Data field provides flexibility to http handler to provide custom response data to client
 func (kv KVStore) respond(status StatusCode, w http.ResponseWriter, data interface{}) {
 	resp := KVResponse{status, kv.getErrorDescription(status), data}
-
-	if status == Success {
+	if status == Success || status == KeyNotFoundError || status == KeyDuplicationError {
 		w.WriteHeader(http.StatusOK)
-	} else if status == KeyNotFoundError {
-		w.WriteHeader(http.StatusNotFound)
 	} else {
 		w.WriteHeader(http.StatusInternalServerError)
 	}
-	json.NewEncoder(w).Encode(resp)
-}
-func (kv *KVStore) checkIfKeyExists(key int) (StatusCode, error) {
 
+	//  else if status == KeyNotFoundError {
+	// 	w.WriteHeader(http.StatusNotFound)
+	// }
+
+	// fix for overloading of windows response buffer due to which application freezes
+	buf := bufio.NewWriter(w)
+	json.NewEncoder(buf).Encode(resp)
+	buf.Flush()
+	// json.NewEncoder(w).Encode(resp)
+}
+func (kv *KVStore) checkIfKeyExists(key string) (StatusCode, error) {
 	var status StatusCode
 	var err error
 	if kv.IsDbConnectionFailed {
 		status, err = DBConnectionError, fmt.Errorf("fatal error. Exectuion cannot continue")
 	} else {
-		stmt, err := kv.DB.Prepare("SELECT EXISTS(SELECT 1 FROM key_store_table WHERE key_name = ?)")
-		if err != nil {
-			status = StatementPreparationError
+		dbResult := kv.DB.QueryRow("SELECT EXISTS(SELECT 1 FROM key_store_table WHERE key_name = ?)", key)
+		var exists string
+		err = dbResult.Scan(&exists)
+		if err == sql.ErrNoRows || exists == "0" {
+			status, err = KeyNotFoundError, fmt.Errorf("unable to find key: %d", key)
 		} else {
-			var exists bool
-			err = stmt.QueryRow(key).Scan(&exists)
-			if err != nil {
-				status = DBResponseError
-			} else {
-				if exists == true {
-					status, err = Success, nil
-				} else {
-					status, err = KeyNotFoundError, fmt.Errorf("unable to find key: %d", key)
-				}
-			}
+			status, err = Success, nil
 		}
 	}
 	return status, err
 }
-func (kv *KVStore) insertKey(key int, value string) (StatusCode, error) {
-
-	var status StatusCode
-	var resError error
-	status, resError = Success, nil
-
+func (kv *KVStore) insertKey(key string, value string) (StatusCode, error) {
 	if kv.IsDbConnectionFailed {
-		status, resError = DBConnectionError, fmt.Errorf("fatal error. Exectuion cannot continue")
+		return DBConnectionError, fmt.Errorf("fatal error. Exectuion cannot continue")
 	}
 
-	stmt, err := kv.DB.Prepare("INSERT INTO key_store_table (key_name, key_value) VALUES (?, ?)")
-	if err != nil {
-		status, resError = StatementPreparationError, err
-	}
+	// stmt, err := kv.DB.Prepare("INSERT INTO key_store_table (key_name, key_value) VALUES (?, ?)")
+	// if err != nil {
+	// 	status, resError = StatementPreparationError, err
+	// }
 
-	dbResult, err := stmt.Exec(key, value)
+	dbResult, err := kv.DB.Exec("INSERT INTO key_store_table (key_name, key_value) VALUES (?, ?)", key, value)
 	if err != nil {
-		status, resError = InsertError, err
+		return InsertError, err
 	}
 
 	rowsAffected, err := dbResult.RowsAffected()
 	if err != nil {
-		status, resError = DBResponseError, fmt.Errorf("unable to verify for insert of key: %d", key)
+		return DBResponseError, fmt.Errorf("unable to verify for insert of key: %d", key)
 	}
 
 	if rowsAffected == 1 {
-		status, resError = Success, nil
+		return Success, nil
 	} else {
-		status, resError = InsertError, fmt.Errorf("unable to insert key: %d", key)
+		return InsertError, fmt.Errorf("unable to insert key: %d", key)
 	}
-
-	return status, resError
 }
-func (kv *KVStore) readKey(key int) (StatusCode, string, error) {
-
+func (kv *KVStore) readKey(key string) (StatusCode, string, error) {
 	var status StatusCode
 	var resError error
 	var value string
@@ -162,25 +151,20 @@ func (kv *KVStore) readKey(key int) (StatusCode, string, error) {
 	if kv.IsDbConnectionFailed {
 		status, value, resError = DBConnectionError, "", fmt.Errorf("fatal error. exectuion cannot continue")
 	} else {
-		stmt, err := kv.DB.Prepare("SELECT key_value FROM key_store_table WHERE key_name = ?")
-		if err != nil {
-			status, value, resError = StatementPreparationError, "", err
+		dbResult := kv.DB.QueryRow("SELECT key_value FROM key_store_table WHERE key_name = ?", key)
+		var keyValue string
+		err := dbResult.Scan(&keyValue)
+		if err == sql.ErrNoRows {
+			status, value, resError = KeyNotFoundError, "", fmt.Errorf("unable to find key: %d", key)
+		} else if err != nil {
+			status, value, resError = DBResponseError, "", err
 		} else {
-
-			var keyValue string
-			err = stmt.QueryRow(key).Scan(&keyValue)
-			if err == sql.ErrNoRows {
-				status, value, resError = KeyNotFoundError, "", fmt.Errorf("unable to find key: %d", key)
-			} else if err != nil {
-				status, value, resError = DBResponseError, "", err
-			} else {
-				status, value, resError = Success, keyValue, nil
-			}
+			status, value, resError = Success, keyValue, nil
 		}
 	}
 	return status, value, resError
 }
-func (kv *KVStore) updateKey(key int, value string) (StatusCode, error) {
+func (kv *KVStore) updateKey(key string, value string) (StatusCode, error) {
 
 	var status StatusCode
 	var resError error
@@ -211,7 +195,7 @@ func (kv *KVStore) updateKey(key int, value string) (StatusCode, error) {
 	}
 	return status, resError
 }
-func (kv *KVStore) deleteKey(key int) (StatusCode, error) {
+func (kv *KVStore) deleteKey(key string) (StatusCode, error) {
 	if kv.IsDbConnectionFailed {
 		return DBConnectionError, fmt.Errorf("fatal error. exectuion cannot continue")
 	}
@@ -250,7 +234,7 @@ func (kv *KVStore) CreateHandler(w http.ResponseWriter, r *http.Request) {
 	if resError = json.NewDecoder(r.Body).Decode(&req); resError != nil {
 		status, data = InvalidJSONError, `Required JSON format: 
 											{
-												"Key": int,
+												"Key": string,
 												"Value": string
 											}`
 
@@ -261,7 +245,6 @@ func (kv *KVStore) CreateHandler(w http.ResponseWriter, r *http.Request) {
 	if _, exists := kv.cache.CheckKey(req.Key); exists {
 		status, data = KeyDuplicationError, fmt.Sprintf("Key already present. Key: %d", req.Key)
 	} else {
-
 		status, _ = kv.checkIfKeyExists(req.Key)
 		if status == Success {
 			status, data = KeyDuplicationError, fmt.Sprintf("Key already present. Key: %d", req.Key)
@@ -287,19 +270,14 @@ func (kv *KVStore) CreateHandler(w http.ResponseWriter, r *http.Request) {
 
 // For GET method
 func (kv *KVStore) ReadHandler(w http.ResponseWriter, r *http.Request) {
-	keyStr := r.URL.Query().Get("key")
-	key, err := strconv.Atoi(keyStr)
-	if err != nil {
-		kv.respond(InvalidKeyError, w, "Key need to be of integer type only")
-		return
-	}
+	key := r.URL.Query().Get("key")
 
 	var status StatusCode
 	var resError error
 	var data interface{}
 	var keyValue string
 
-	if keyNode, exists := kv.cache.CheckKey(key); !exists {
+	if existingKey, exists := kv.cache.CheckKey(key); !exists {
 		status, keyValue, resError = kv.readKey(key)
 		if status == Success {
 			kv.cache.Add(&Node{key: key, keyValue: keyValue})
@@ -311,7 +289,7 @@ func (kv *KVStore) ReadHandler(w http.ResponseWriter, r *http.Request) {
 			status = Unknown
 		}
 	} else {
-		data = KVData{Key: key, Value: keyNode.keyValue}
+		data = KVData{Key: key, Value: existingKey.keyValue}
 		status = Success
 	}
 
@@ -329,7 +307,7 @@ func (kv *KVStore) UpdateHandler(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		kv.respond(InvalidJSONError, w, `Required JSON format: 
 		{
-			"Key": int,
+			"Key": string,
 			"Value": string
 		}`)
 		return
@@ -372,12 +350,13 @@ func (kv *KVStore) UpdateHandler(w http.ResponseWriter, r *http.Request) {
 
 // For DELETE method
 func (kv *KVStore) DeleteHandler(w http.ResponseWriter, r *http.Request) {
-	keyStr := r.URL.Query().Get("key")
-	key, err := strconv.Atoi(keyStr)
-	if err != nil {
-		kv.respond(InvalidKeyError, w, "Key need to be of integer type only")
-		return
-	}
+	// keyStr := r.URL.Query().Get("key")
+	key := r.URL.Query().Get("key")
+	// key, err := strconv.Atoi(keyStr)
+	// if err != nil {
+	// 	kv.respond(InvalidKeyError, w, "Key need to be of integer type only")
+	// 	return
+	// }
 
 	var existsInCache, existsInDB bool
 	var keyNode *Node

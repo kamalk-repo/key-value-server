@@ -1,7 +1,9 @@
 package library
 
+import "sync"
+
 type Node struct {
-	key      int
+	key      string
 	keyValue string
 	left     *Node
 	right    *Node
@@ -16,7 +18,8 @@ type Queue struct {
 
 type LRUCache struct {
 	queue Queue
-	hash  map[int]*Node
+	mu    sync.RWMutex
+	hash  map[string]*Node
 }
 
 func NewQueue(capacity int) Queue {
@@ -29,26 +32,20 @@ func NewQueue(capacity int) Queue {
 }
 
 func NewLRUCache(capacity int) *LRUCache {
-	return &LRUCache{queue: NewQueue(capacity), hash: make(map[int]*Node)}
+	return &LRUCache{queue: NewQueue(capacity), hash: make(map[string]*Node)}
 }
 
-func (lc *LRUCache) CheckKey(key int) (*Node, bool) {
-	node := &Node{}
-	keyExists := false
+func (lc *LRUCache) CheckKey(key string) (*Node, bool) {
+	lc.mu.RLock()
+	defer lc.mu.RUnlock()
 	if val, ok := lc.hash[key]; ok {
-		keyExists = true
-		if lc.queue.head.right.key != val.key {
-			// Put found key in the front
-			lc.Remove(val)
-			lc.Add(node)
-		}
-		node = val
+		return val, true
 	}
 
-	return node, keyExists
+	return &Node{}, false
 }
 
-func (lc *LRUCache) UpdateKey(key int, keyValue string) (*Node, bool) {
+func (lc *LRUCache) UpdateKey(key string, keyValue string) (*Node, bool) {
 	node := &Node{}
 	keyExists := false
 
@@ -69,6 +66,8 @@ func (lc *LRUCache) UpdateKey(key int, keyValue string) (*Node, bool) {
 }
 
 func (lc *LRUCache) Remove(n *Node) *Node {
+	// lc.mu.Lock()
+	// defer lc.mu.Unlock()
 	left := n.left
 	right := n.right
 
@@ -80,6 +79,8 @@ func (lc *LRUCache) Remove(n *Node) *Node {
 }
 
 func (lc *LRUCache) Add(n *Node) {
+	lc.mu.Lock()
+	defer lc.mu.Unlock()
 	tmp := lc.queue.head.right
 	lc.queue.head.right = n
 	n.left = lc.queue.head
