@@ -35,7 +35,7 @@ Run following commands in project directory
 
 | Parameter | Type     | Description                |
 | :-------- | :------- | :------------------------- |
-| `key` | `int` | Id of the key to fetch |
+| `key` | `string` | Id of the key to fetch |
 
 ```
 
@@ -59,7 +59,7 @@ Sample Response:
 
 | Parameter | Type     | Description                       |
 | :-------- | :------- | :-------------------------------- |
-| `Key`      | `int` | Id of the key to store |
+| `Key`      | `string` | Id of the key to store |
 | `Value`      | `string` | Value of the key to store |
 
 ```
@@ -87,7 +87,7 @@ Sample Response:
 
 | Parameter | Type     | Description                       |
 | :-------- | :------- | :-------------------------------- |
-| `Key`      | `int` | Id of the key to update |
+| `Key`      | `string` | Id of the key to update |
 | `Value`      | `string` | Value of the key to update |
 
 ```
@@ -114,7 +114,7 @@ Sample Response:
 
 | Parameter | Type     | Description                       |
 | :-------- | :------- | :-------------------------------- |
-| `key`      | `int` | Id of the key to delete |
+| `key`      | `string` | Id of the key to delete |
 
 ```
 Sample Response:
